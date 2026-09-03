@@ -42,22 +42,34 @@ is_ipv4() {
   local ip="$1"
   [[ "${ip}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
   local IFS='.' octet
+  local -a octets
   read -r -a octets <<<"${ip}"
   for octet in "${octets[@]}"; do
-    (( octet >= 0 && octet <= 255 )) || return 1
+    (( 10#${octet} >= 0 && 10#${octet} <= 255 )) || return 1
   done
 }
 
-# Re-use settings from a previous run unless explicitly overridden.
+# Preserve caller-provided overrides before loading saved state.
+INPUT_ADMIN_EMAIL="${ADMIN_EMAIL:-}"
+INPUT_PUBLIC_IP="${PUBLIC_IP:-}"
+INPUT_APP_HOSTNAME="${APP_HOSTNAME:-}"
+INPUT_PDS_HOSTNAME="${PDS_HOSTNAME:-}"
+
 if [[ -f "${STATE_ENV}" ]]; then
   # shellcheck disable=SC1090
   source "${STATE_ENV}"
 fi
 
-ADMIN_EMAIL="${ADMIN_EMAIL:-}"
-PUBLIC_IP="${PUBLIC_IP:-}"
-APP_HOSTNAME="${APP_HOSTNAME:-}"
-PDS_HOSTNAME="${PDS_HOSTNAME:-}"
+ADMIN_EMAIL="${INPUT_ADMIN_EMAIL:-${ADMIN_EMAIL:-}}"
+PUBLIC_IP="${INPUT_PUBLIC_IP:-${PUBLIC_IP:-}}"
+APP_HOSTNAME="${INPUT_APP_HOSTNAME:-${APP_HOSTNAME:-}}"
+PDS_HOSTNAME="${INPUT_PDS_HOSTNAME:-${PDS_HOSTNAME:-}}"
+
+# A pristine cloud image may not contain curl/git/lsb_release yet. The official
+# PDS installer needs lsb_release before it installs its own package list.
+log "Preparing base system tools"
+apt-get update
+apt-get install --yes ca-certificates curl git lsb-release
 
 if [[ -z "${PUBLIC_IP}" ]]; then
   log "Detecting public IPv4 address"
@@ -68,6 +80,16 @@ is_ipv4 "${PUBLIC_IP}" || fail "Could not determine a public IPv4 address. Re-ru
 IP_DASH="${PUBLIC_IP//./-}"
 APP_HOSTNAME="${APP_HOSTNAME:-torah-${IP_DASH}.nip.io}"
 PDS_HOSTNAME="${PDS_HOSTNAME:-pds-${IP_DASH}.nip.io}"
+
+# A configured PDS cannot safely have its hostname changed just by rerunning
+# this script. If one exists, its stored hostname is authoritative.
+if [[ -f "${STATE_DIR}/pds.env" ]]; then
+  EXISTING_PDS_HOSTNAME="$(sed -n 's/^PDS_HOSTNAME=//p' "${STATE_DIR}/pds.env" | head -n 1)"
+  if [[ -n "${EXISTING_PDS_HOSTNAME}" && "${PDS_HOSTNAME}" != "${EXISTING_PDS_HOSTNAME}" ]]; then
+    log "Preserving existing PDS hostname ${EXISTING_PDS_HOSTNAME}"
+    PDS_HOSTNAME="${EXISTING_PDS_HOSTNAME}"
+  fi
+fi
 
 if [[ -z "${ADMIN_EMAIL}" ]]; then
   fail "ADMIN_EMAIL is required on the first run, e.g. sudo ADMIN_EMAIL=you@example.com bash torah-social/install.sh"
@@ -90,6 +112,8 @@ if [[ ! -f "${STATE_DIR}/pds.env" ]]; then
   printf 'n\n' | bash "${REPO_ROOT}/installer.sh" "${STATE_DIR}" "${PDS_HOSTNAME}" "${ADMIN_EMAIL}"
 else
   log "Existing PDS data found; preserving ${STATE_DIR}"
+  systemctl enable pds >/dev/null 2>&1 || true
+  systemctl restart pds
 fi
 
 # The current upstream installer writes the Caddy on-demand permission keyword
