@@ -1,0 +1,26 @@
+name: Torah Social Deploy Check
+
+on:
+  push:
+    branches:
+      - codex/torah-social-foundation
+    paths:
+      - 'torah-social/**'
+      - '.github/workflows/torah-social-deploy-check.yml'
+  pull_request:
+    paths:
+      - 'torah-social/**'
+      - '.github/workflows/torah-social-deploy-check.yml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Bash syntax
+        run: bash -n torah-social/install.sh
+
+      - name: ShellCheck
+        run: shellcheck -x torah-social/install.sh
