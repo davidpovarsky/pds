@@ -66,16 +66,12 @@ docker build \
   --tag torah-appview:latest \
   "${APPVIEW_SRC_DIR}"
 
-log "Creating the private AppView Docker network"
-docker network inspect torah-social-internal >/dev/null 2>&1 || \
-  docker network create torah-social-internal >/dev/null
-
 log "Starting persistent PostgreSQL for the Torah AppView"
 docker rm --force torah-appview-postgres >/dev/null 2>&1 || true
 docker run --detach \
   --name torah-appview-postgres \
   --restart unless-stopped \
-  --network torah-social-internal \
+  --publish 127.0.0.1:5432:5432 \
   --volume "${APPVIEW_DB_DIR}:/var/lib/postgresql/data" \
   --env POSTGRES_DB=torah_appview \
   --env POSTGRES_USER=torah \
@@ -106,11 +102,10 @@ docker rm --force torah-appview >/dev/null 2>&1 || true
 docker run --detach \
   --name torah-appview \
   --restart unless-stopped \
-  --network torah-social-internal \
-  --publish 127.0.0.1:2584:2584 \
-  --env "TORAH_APPVIEW_DB_URL=postgresql://torah:${POSTGRES_PASSWORD}@torah-appview-postgres:5432/torah_appview" \
+  --network host \
+  --env "TORAH_APPVIEW_DB_URL=postgresql://torah:${POSTGRES_PASSWORD}@127.0.0.1:5432/torah_appview" \
   --env "TORAH_APPVIEW_PUBLIC_URL=https://${APPVIEW_HOSTNAME}" \
-  --env "TORAH_APPVIEW_REPO_PROVIDER=wss://${PDS_HOSTNAME}" \
+  --env TORAH_APPVIEW_REPO_PROVIDER=ws://127.0.0.1:3000 \
   --env "TORAH_APPVIEW_SIGNING_KEY=${APPVIEW_SIGNING_KEY}" \
   --env "TORAH_APPVIEW_ADMIN_PASSWORD=${APPVIEW_ADMIN_PASSWORD}" \
   --env "TORAH_APPVIEW_BSYNC_API_KEY=${BSYNC_API_KEY}" \
@@ -240,7 +235,7 @@ cat >"${STATE_DIR}/torah-appview-info" <<EOF
 APPVIEW_HOSTNAME=${APPVIEW_HOSTNAME}
 APPVIEW_URL=https://${APPVIEW_HOSTNAME}
 APPVIEW_DID=${APPVIEW_DID}
-REPO_PROVIDER=wss://${PDS_HOSTNAME}
+REPO_PROVIDER=ws://127.0.0.1:3000
 EOF
 chmod 600 "${STATE_DIR}/torah-appview-info"
 
@@ -253,7 +248,7 @@ Web:       https://${APP_HOSTNAME}
 PDS:       https://${PDS_HOSTNAME}
 AppView:   https://${APPVIEW_HOSTNAME}
 AppView DID: ${APPVIEW_DID}
-Indexed source: wss://${PDS_HOSTNAME} ONLY
+Indexed source: local Torah Social PDS ONLY
 Public Bluesky crawler: DISABLED
 
 The AppView database starts empty and will index only accounts/posts emitted by
