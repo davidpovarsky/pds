@@ -11,8 +11,12 @@ TORAH_ENV="${STATE_DIR}/torah-social.env"
 APPVIEW_ENV="${STATE_DIR}/torah-appview.env"
 APPVIEW_DB_DIR="${STATE_DIR}/torah-appview-postgres"
 APPVIEW_SRC_DIR="/opt/torah-appview/atproto"
+SOCIAL_APP_DIR="/opt/torah-social/social-app"
 ATPROTO_REPO="https://github.com/davidpovarsky/atproto.git"
 ATPROTO_BRANCH="codex/torah-social-foundation"
+SOCIAL_APP_REPO="https://github.com/davidpovarsky/social-app.git"
+SOCIAL_APP_BRANCH="codex/torah-social-foundation"
+DEPLOY_VERSION="client-isolation-v2"
 
 log() {
   printf '\n==> %s\n' "$*"
@@ -34,9 +38,10 @@ source "${TORAH_ENV}"
 
 IP_DASH="${PUBLIC_IP//./-}"
 APPVIEW_HOSTNAME="appview-${IP_DASH}.nip.io"
+PDS_DID="did:web:${PDS_HOSTNAME}"
 
 log "Preparing persistent Torah AppView secrets"
-mkdir -p "${APPVIEW_DB_DIR}" "$(dirname "${APPVIEW_SRC_DIR}")"
+mkdir -p "${APPVIEW_DB_DIR}" "$(dirname "${APPVIEW_SRC_DIR}")" "$(dirname "${SOCIAL_APP_DIR}")"
 if [[ ! -f "${APPVIEW_ENV}" ]]; then
   umask 077
   cat >"${APPVIEW_ENV}" <<EOF
@@ -214,7 +219,34 @@ for _ in $(seq 1 60); do
 done
 [[ "${PDS_READY}" -eq 1 ]] || fail "PDS did not recover after AppView reconfiguration."
 
-log "Switching Torah Social Web from the public Bluesky AppView to our AppView"
+# IMPORTANT: the React/Expo client contains public Bluesky AppView and Discover
+# endpoints as compile-time constants. Merely changing ATP_APPVIEW_HOST on the
+# bskyweb Go process does NOT change those values. Fetch the latest client and
+# rebuild the static JS bundle with the local PDS/AppView baked into it.
+log "Fetching the latest Torah Social client"
+if [[ ! -d "${SOCIAL_APP_DIR}/.git" ]]; then
+  rm -rf "${SOCIAL_APP_DIR}"
+  git clone --branch "${SOCIAL_APP_BRANCH}" --single-branch "${SOCIAL_APP_REPO}" "${SOCIAL_APP_DIR}"
+else
+  git -C "${SOCIAL_APP_DIR}" fetch origin "${SOCIAL_APP_BRANCH}"
+  git -C "${SOCIAL_APP_DIR}" checkout "${SOCIAL_APP_BRANCH}"
+  git -C "${SOCIAL_APP_DIR}" reset --hard "origin/${SOCIAL_APP_BRANCH}"
+fi
+
+BUNDLE_ID="$(git -C "${SOCIAL_APP_DIR}" rev-parse --short=12 HEAD)"
+log "Rebuilding Torah Social web bundle in isolated mode (${BUNDLE_ID})"
+docker build \
+  --build-arg EXPO_PUBLIC_ENV=development \
+  --build-arg EXPO_PUBLIC_BUNDLE_IDENTIFIER="${BUNDLE_ID}" \
+  --build-arg EXPO_PUBLIC_TORAH_PDS_HOST="https://${PDS_HOSTNAME}" \
+  --build-arg EXPO_PUBLIC_TORAH_PDS_DID="${PDS_DID}" \
+  --build-arg EXPO_PUBLIC_TORAH_APPVIEW_HOST="https://${APPVIEW_HOSTNAME}" \
+  --build-arg EXPO_PUBLIC_BLUESKY_PROXY_DID="${APPVIEW_DID}" \
+  --build-arg EXPO_PUBLIC_TORAH_ISOLATED_NETWORK=true \
+  --tag torah-social-web:latest \
+  "${SOCIAL_APP_DIR}"
+
+log "Starting rebuilt Torah Social web against our AppView"
 docker rm --force torah-social-web >/dev/null 2>&1 || true
 docker run --detach \
   --name torah-social-web \
@@ -233,15 +265,19 @@ for _ in $(seq 1 45); do
   fi
   sleep 2
 done
-[[ "${WEB_READY}" -eq 1 ]] || fail "Torah Social Web did not come back after the AppView switch."
+[[ "${WEB_READY}" -eq 1 ]] || fail "Torah Social Web did not come back after the isolated rebuild."
 
 cat >"${STATE_DIR}/torah-appview-info" <<EOF
 APPVIEW_HOSTNAME=${APPVIEW_HOSTNAME}
 APPVIEW_URL=https://${APPVIEW_HOSTNAME}
 APPVIEW_DID=${APPVIEW_DID}
 REPO_PROVIDER=ws://127.0.0.1:3000
+CLIENT_BUNDLE=${BUNDLE_ID}
+CLIENT_ISOLATED=true
 EOF
 chmod 600 "${STATE_DIR}/torah-appview-info"
+printf '%s\n' "${DEPLOY_VERSION}" >"${STATE_DIR}/torah-appview-deploy-version"
+chmod 600 "${STATE_DIR}/torah-appview-deploy-version"
 
 cat <<EOF
 
@@ -255,8 +291,10 @@ AppView DID: ${APPVIEW_DID}
 Indexed source: local Torah Social PDS ONLY
 Public Bluesky crawler: DISABLED
 Bluesky moderation/report services: DISABLED
+Web client public AppView: REPLACED WITH TORAH APPVIEW
+Web client public Discover feed: DISABLED/LOCALIZED
+Client bundle: ${BUNDLE_ID}
 
-The AppView database starts empty and will index only accounts/posts emitted by
-this Torah Social PDS.
+The AppView database indexes only accounts/posts emitted by this Torah Social PDS.
 ========================================================================
 EOF
