@@ -169,7 +169,7 @@ done
   fail "Public Torah AppView HTTPS did not become ready."
 }
 
-log "Pointing the PDS at our AppView and disconnecting the public Bluesky crawler"
+log "Pointing the PDS at our AppView and disconnecting Bluesky services"
 python3 - "${STATE_DIR}/pds.env" "https://${APPVIEW_HOSTNAME}" "${APPVIEW_DID}" <<'PY'
 import sys
 from pathlib import Path
@@ -181,6 +181,10 @@ updates = {
     'PDS_BSKY_APP_VIEW_URL': appview_url,
     'PDS_BSKY_APP_VIEW_DID': appview_did,
     'PDS_CRAWLERS': '',
+    'PDS_MOD_SERVICE_URL': '',
+    'PDS_MOD_SERVICE_DID': '',
+    'PDS_REPORT_SERVICE_URL': '',
+    'PDS_REPORT_SERVICE_DID': '',
 }
 lines = path.read_text().splitlines()
 seen = set()
@@ -250,6 +254,7 @@ AppView:   https://${APPVIEW_HOSTNAME}
 AppView DID: ${APPVIEW_DID}
 Indexed source: local Torah Social PDS ONLY
 Public Bluesky crawler: DISABLED
+Bluesky moderation/report services: DISABLED
 
 The AppView database starts empty and will index only accounts/posts emitted by
 this Torah Social PDS.
