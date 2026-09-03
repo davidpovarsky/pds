@@ -63,8 +63,6 @@ require curl
 
 log "Using Oracle region ${REGION}"
 
-# Cloud Shell normally has a pre-authenticated config. Resolve the tenancy from
-# environment or config, with one fallback prompt for unusual Cloud Shell setups.
 TENANCY_ID="${OCI_CLI_TENANCY:-}"
 if [[ -z "${TENANCY_ID}" && -f "${HOME}/.oci/config" ]]; then
   TENANCY_ID="$(awk -F= '/^[[:space:]]*tenancy[[:space:]]*=/{gsub(/[[:space:]]/,"",$2); print $2; exit}' "${HOME}/.oci/config" || true)"
@@ -74,8 +72,6 @@ if [[ -z "${TENANCY_ID}" ]]; then
 fi
 [[ "${TENANCY_ID}" == ocid1.tenancy.* ]] || fail "Could not determine a valid tenancy OCID."
 
-# The root compartment is the tenancy itself. This matches the account setup
-# used for the experimental Torah Social environment.
 COMPARTMENT_ID="${COMPARTMENT_ID:-${TENANCY_ID}}"
 
 ADMIN_EMAIL="${ADMIN_EMAIL:-}"
@@ -88,8 +84,7 @@ OCI=(oci --region "${REGION}")
 
 log "Checking Oracle access"
 "${OCI[@]}" iam availability-domain list \
-  --compartment-id "${TENANCY_ID}" \
-  --limit 1 >/dev/null
+  --compartment-id "${TENANCY_ID}" >/dev/null
 
 AD_NAME="$("${OCI[@]}" iam availability-domain list \
   --compartment-id "${TENANCY_ID}" \
