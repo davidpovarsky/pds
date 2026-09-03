@@ -1,18 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+trap 'rc=$?; echo; echo "ERROR: command failed at line ${BASH_LINENO[0]} (exit ${rc})" >&2; echo "COMMAND: ${BASH_COMMAND}" >&2' ERR
+
 # Torah Social - Oracle Cloud one-command bootstrap
 # Run this from OCI Cloud Shell. Cloud Shell already has an authenticated OCI CLI.
-#
-# This script creates/reuses:
-#   - a VCN
-#   - an Internet Gateway
-#   - a public subnet
-#   - route/security rules for SSH, HTTP, and HTTPS
-#   - an Always Free-eligible VM.Standard.A1.Flex instance (2 OCPU / 12 GB)
-#   - an ephemeral public IPv4 address
-#
-# The VM then installs Torah Social + the PDS automatically through cloud-init.
 
 REGION="${REGION:-il-jerusalem-1}"
 VCN_NAME="${VCN_NAME:-torah-social-vcn}"
@@ -60,18 +52,15 @@ first_non_null() {
 require oci
 require ssh-keygen
 require curl
+require python3
 
-log "Using Oracle region ${REGION}"
+# Oracle Cloud Shell injects a pre-authenticated CLI configuration in /etc/oci
+# and exposes its path/auth/profile through OCI_CLI_* environment variables.
+OCI_CONFIG_FILE="${OCI_CLI_CONFIG_FILE:-/etc/oci/config}"
+[[ -r "${OCI_CONFIG_FILE}" ]] || fail "Cloud Shell OCI config was not found at ${OCI_CONFIG_FILE}. Close and reopen Cloud Shell, then retry."
 
-TENANCY_ID="${OCI_CLI_TENANCY:-}"
-if [[ -z "${TENANCY_ID}" && -f "${HOME}/.oci/config" ]]; then
-  TENANCY_ID="$(awk -F= '/^[[:space:]]*tenancy[[:space:]]*=/{gsub(/[[:space:]]/,"",$2); print $2; exit}' "${HOME}/.oci/config" || true)"
-fi
-if [[ -z "${TENANCY_ID}" ]]; then
-  read -r -p "Paste your Oracle Tenancy OCID: " TENANCY_ID
-fi
-[[ "${TENANCY_ID}" == ocid1.tenancy.* ]] || fail "Could not determine a valid tenancy OCID."
-
+TENANCY_ID="$(awk -F= '/^[[:space:]]*tenancy[[:space:]]*=/{gsub(/[[:space:]]/,"",$2); print $2; exit}' "${OCI_CONFIG_FILE}")"
+[[ "${TENANCY_ID}" == ocid1.tenancy.* ]] || fail "Could not read the tenancy OCID from the Cloud Shell config (${OCI_CONFIG_FILE})."
 COMPARTMENT_ID="${COMPARTMENT_ID:-${TENANCY_ID}}"
 
 ADMIN_EMAIL="${ADMIN_EMAIL:-}"
@@ -82,15 +71,20 @@ fi
 
 OCI=(oci --region "${REGION}")
 
-log "Checking Oracle access"
-"${OCI[@]}" iam availability-domain list \
-  --compartment-id "${TENANCY_ID}" >/dev/null
+log "Using Oracle Cloud Shell authentication"
+echo "Auth:    ${OCI_CLI_AUTH:-Cloud-Shell-default}"
+echo "Profile: ${OCI_CLI_PROFILE:-Cloud-Shell-default}"
+echo "Config:  ${OCI_CONFIG_FILE}"
+echo "Region:  ${REGION}"
 
+log "Checking Oracle access"
+# compartment-id is optional for availability-domain list. Omitting it lets
+# Cloud Shell use its own authenticated tenancy context directly.
 AD_NAME="$("${OCI[@]}" iam availability-domain list \
-  --compartment-id "${TENANCY_ID}" \
   --query 'data[0].name' \
   --raw-output)"
-[[ -n "${AD_NAME}" && "${AD_NAME}" != "null" ]] || fail "No availability domain found in ${REGION}."
+[[ -n "${AD_NAME}" && "${AD_NAME}" != "null" ]] || fail "Oracle returned no availability domain for ${REGION}."
+echo "Availability domain: ${AD_NAME}"
 
 log "Creating/reusing VCN"
 VCN_ID="$("${OCI[@]}" network vcn list \
@@ -143,7 +137,7 @@ ROUTE_RULES="$(json_file torah-route-rules "[{\"destination\":\"0.0.0.0/0\",\"de
   --wait-for-state AVAILABLE >/dev/null
 rm -f "${ROUTE_RULES}"
 
-log "Opening only the required inbound ports (22, 80, 443)"
+log "Opening only required inbound ports (22, 80, 443)"
 INGRESS_RULES='[
   {"protocol":"6","source":"0.0.0.0/0","sourceType":"CIDR_BLOCK","isStateless":false,"tcpOptions":{"destinationPortRange":{"min":22,"max":22}}},
   {"protocol":"6","source":"0.0.0.0/0","sourceType":"CIDR_BLOCK","isStateless":false,"tcpOptions":{"destinationPortRange":{"min":80,"max":80}}},
