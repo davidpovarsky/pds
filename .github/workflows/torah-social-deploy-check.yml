@@ -22,9 +22,13 @@ jobs:
       - name: Bash syntax
         run: |
           set -euo pipefail
-          find torah-social -maxdepth 1 -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+          bash -n torah-social/install.sh
+          bash -n torah-social/deploy-web.sh
+          bash -n torah-social/oci-deploy-web.sh
 
       - name: ShellCheck
         run: |
           set -euo pipefail
-          find torah-social -maxdepth 1 -type f -name '*.sh' -print0 | xargs -0 shellcheck -x
+          shellcheck -x torah-social/install.sh
+          shellcheck -x torah-social/deploy-web.sh
+          shellcheck -x torah-social/oci-deploy-web.sh
