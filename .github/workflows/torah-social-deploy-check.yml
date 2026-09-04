@@ -20,7 +20,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Bash syntax
-        run: bash -n torah-social/install.sh
+        run: |
+          set -euo pipefail
+          find torah-social -maxdepth 1 -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
 
       - name: ShellCheck
-        run: shellcheck -x torah-social/install.sh
+        run: |
+          set -euo pipefail
+          find torah-social -maxdepth 1 -type f -name '*.sh' -print0 | xargs -0 shellcheck -x
