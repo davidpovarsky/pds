@@ -42,6 +42,16 @@ fi
 
 BUNDLE_ID="$(git -C "${SOCIAL_APP_DIR}" rev-parse --short=12 HEAD)"
 FULL_COMMIT="$(git -C "${SOCIAL_APP_DIR}" rev-parse HEAD)"
+
+# Ensure host has swap enabled so parallel compilation and terser don't hit OOM
+if [[ $(swapon --show | wc -l) -le 1 ]]; then
+  log "Configuring 4GB swap for build stability"
+  fallocate -l 4G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=4096
+  chmod 600 /swapfile
+  mkswap /swapfile 2>/dev/null || true
+  swapon /swapfile 2>/dev/null || true
+fi
+
 log "Building isolated Torah Social web bundle (${BUNDLE_ID})"
 
 docker build \
