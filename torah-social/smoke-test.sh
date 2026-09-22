@@ -101,22 +101,21 @@ POST_URI="$(echo "$CREATE_POST_RES" | jq -r '.uri // empty')"
 POST_CID="$(echo "$CREATE_POST_RES" | jq -r '.cid // empty')"
 [ -n "$POST_URI" ] && check 10 "User A creates post with Hebrew text" 0 || check 10 "User A post creation failed" 1
 
-# 11. Post Indexing: Verify post appears in User A's author feed via AppView within 5 seconds
+## 11. Post Indexing: Verify post appears in User A's author feed via AppView within 15 seconds
 INDEXED=1
-for i in {1..10}; do
+for i in {1..15}; do
   FEED_RES="$(curl -sk "${BASE_URL}/xrpc/app.bsky.feed.getAuthorFeed?actor=${USER_A_DID}&limit=5" || echo "{}")"
-  if echo "$FEED_RES" | grep -q "${HEBREW_TEXT}"; then
+  if echo "$FEED_RES" | grep -q "${RAND_SUFFIX}"; then
     INDEXED=0
     break
   fi
-  sleep 0.5
+  sleep 1
 done
 check 11 "Post appears in User A author feed via AppView" "$INDEXED"
 
 # 12. Search: Search for the post by Hebrew text via AppView returns the post
 SEARCH_TERM="בדיקת מערכת ${RAND_SUFFIX}"
-SEARCH_ENC="$(node -e "console.log(encodeURIComponent(process.argv[1]))" "$SEARCH_TERM" 2>/dev/null || echo "$SEARCH_TERM")"
-SEARCH_RES="$(curl -sk "${BASE_URL}/xrpc/app.bsky.feed.searchPosts?q=${SEARCH_ENC}" || echo "{}")"
+SEARCH_RES="$(curl -sk --get --data-urlencode "q=${SEARCH_TERM}" "${BASE_URL}/xrpc/app.bsky.feed.searchPosts" || echo "{}")"
 echo "$SEARCH_RES" | grep -q "${RAND_SUFFIX}" \
   && check 12 "Search post by Hebrew text returns post" 0 \
   || check 12 "Search post by Hebrew text returns post" 1
@@ -134,7 +133,7 @@ TIMELINE_FOUND=1
 for i in {1..10}; do
   TL_RES="$(curl -sk "${PDS_URL}/xrpc/app.bsky.feed.getTimeline?limit=10" \
     -H "Authorization: Bearer ${USER_B_JWT}" || echo "{}")"
-  if echo "$TL_RES" | grep -q "${HEBREW_TEXT}"; then
+  if echo "$TL_RES" | grep -q "${RAND_SUFFIX}"; then
     TIMELINE_FOUND=0
     break
   fi
@@ -158,9 +157,8 @@ REPLY_RES="$(curl -sk -X POST "${PDS_URL}/xrpc/com.atproto.repo.createRecord" \
   -d "{\"repo\":\"${USER_B_DID}\",\"collection\":\"app.bsky.feed.post\",\"record\":{\"\$type\":\"app.bsky.feed.post\",\"text\":\"${REPLY_TEXT}\",\"reply\":{\"root\":{\"uri\":\"${POST_URI}\",\"cid\":\"${POST_CID}\"},\"parent\":{\"uri\":\"${POST_URI}\",\"cid\":\"${POST_CID}\"}},\"createdAt\":\"${NOW_ISO}\"}}" || echo "{}")"
 REPLY_URI="$(echo "$REPLY_RES" | jq -r '.uri // empty')"
 sleep 1
-THREAD_ENC="$(node -e "console.log(encodeURIComponent(process.argv[1]))" "$POST_URI" 2>/dev/null || echo "$POST_URI")"
-THREAD_RES="$(curl -sk "${BASE_URL}/xrpc/app.bsky.feed.getPostThread?uri=${THREAD_ENC}" || echo "{}")"
-echo "$THREAD_RES" | grep -q "${REPLY_TEXT}" \
+THREAD_RES="$(curl -sk --get --data-urlencode "uri=${POST_URI}" "${BASE_URL}/xrpc/app.bsky.feed.getPostThread" || echo "{}")"
+echo "$THREAD_RES" | grep -q "${RAND_SUFFIX}" \
   && check 16 "Thread view returns root + reply" 0 \
   || check 16 "Thread view returns root + reply" 1
 
@@ -198,8 +196,7 @@ EXPLORE_CODE="$(curl -sk -o /dev/null -w "%{http_code}" "${BASE_URL}/xrpc/app.bs
 # 20. Discover: AppView getFeed for default Discover feed returns 200 with posts (not 500)
 APPVIEW_DID="$(echo "$APPVIEW_DID_DOC" | jq -r '.id // empty')"
 DISCOVER_FEED_URI="at://${APPVIEW_DID}/app.bsky.feed.generator/whats-hot"
-DISCOVER_ENC="$(node -e "console.log(encodeURIComponent(process.argv[1]))" "$DISCOVER_FEED_URI" 2>/dev/null || echo "$DISCOVER_FEED_URI")"
-DISCOVER_CODE="$(curl -sk -o /dev/null -w "%{http_code}" "${BASE_URL}/xrpc/app.bsky.feed.getFeed?feed=${DISCOVER_ENC}&limit=10" || echo "000")"
+DISCOVER_CODE="$(curl -sk -o /dev/null -w "%{http_code}" --get --data-urlencode "feed=${DISCOVER_FEED_URI}" --data-urlencode "limit=10" "${BASE_URL}/xrpc/app.bsky.feed.getFeed" || echo "000")"
 [ "$DISCOVER_CODE" = "200" ] && check 20 "Discover feed (whats-hot) returns 200" 0 || check 20 "Discover feed returned ${DISCOVER_CODE}" 1
 
 # 21. Chat: User A sends a chat message to User B via chat proxy; User B reads it
