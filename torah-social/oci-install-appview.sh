@@ -5,7 +5,7 @@ REGION="${REGION:-il-jerusalem-1}"
 INSTANCE_NAME="${INSTANCE_NAME:-torah-social}"
 KEY_PATH="${HOME}/.ssh/torah-social-oci"
 OCI_CONFIG_FILE="${OCI_CLI_CONFIG_FILE:-/etc/oci/config}"
-DEPLOY_VERSION="client-isolation-v2"
+DEPLOY_VERSION="runtime-repair-v1"
 
 fail(){ echo "ERROR: $*" >&2; exit 1; }
 
@@ -59,7 +59,7 @@ fi
 if ! "${SSH[@]}" 'sudo test -f /var/run/torah-appview-install.running'; then
   echo "Starting Torah Social isolation upgrade in the VM background."
   echo "The web bundle will be rebuilt; this can take several minutes."
-  "${SSH[@]}" 'curl -fsSL https://raw.githubusercontent.com/davidpovarsky/pds/codex/torah-social-foundation/torah-social/install-appview.sh -o /tmp/install-appview.sh && sudo rm -f /var/run/torah-appview-install.exit && sudo touch /var/run/torah-appview-install.running && sudo sh -c '\''nohup bash -c "bash /tmp/install-appview.sh; rc=\$?; echo \$rc > /var/run/torah-appview-install.exit; rm -f /var/run/torah-appview-install.running" > /var/log/torah-appview-install.log 2>&1 < /dev/null &'\'''
+  "${SSH[@]}" 'curl -fsSL "https://raw.githubusercontent.com/davidpovarsky/pds/${ATPROTO_BRANCH:-codex/torah-social-runtime-repair}/torah-social/install-appview.sh" -o /tmp/install-appview.sh && sudo rm -f /var/run/torah-appview-install.exit && sudo touch /var/run/torah-appview-install.running && sudo sh -c '\''nohup bash -c "bash /tmp/install-appview.sh; rc=\$?; echo \$rc > /var/run/torah-appview-install.exit; rm -f /var/run/torah-appview-install.running" > /var/log/torah-appview-install.log 2>&1 < /dev/null &'\'''
 else
   echo "An isolation upgrade is already running; reconnecting to its status."
 fi
