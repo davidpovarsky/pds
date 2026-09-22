@@ -26,7 +26,7 @@ check() {
   fi
 }
 
-RAND_SUFFIX="$(date +%s)_$((RANDOM % 10000))"
+RAND_SUFFIX="$(date +%s)-$((RANDOM % 10000))"
 USER_A_HANDLE="smoke-a-${RAND_SUFFIX}.pds-130-110-238-163.nip.io"
 USER_A_EMAIL="smoke-a-${RAND_SUFFIX}@torah-social.local"
 USER_A_PASS="PassA_${RAND_SUFFIX}!"
