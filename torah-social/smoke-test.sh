@@ -104,8 +104,7 @@ POST_CID="$(echo "$CREATE_POST_RES" | jq -r '.cid // empty')"
 # 11. Post Indexing: Verify post appears in User A's author feed via AppView within 5 seconds
 INDEXED=1
 for i in {1..10}; do
-  FEED_RES="$(curl -sk "${BASE_URL}/xrpc/app.bsky.feed.getAuthorFeed?actor=${USER_A_DID}&limit=5" \
-    -H "Authorization: Bearer ${USER_A_JWT}" || echo "{}")"
+  FEED_RES="$(curl -sk "${BASE_URL}/xrpc/app.bsky.feed.getAuthorFeed?actor=${USER_A_DID}&limit=5" || echo "{}")"
   if echo "$FEED_RES" | grep -q "${HEBREW_TEXT}"; then
     INDEXED=0
     break
@@ -117,8 +116,7 @@ check 11 "Post appears in User A author feed via AppView" "$INDEXED"
 # 12. Search: Search for the post by Hebrew text via AppView returns the post
 SEARCH_TERM="בדיקת מערכת ${RAND_SUFFIX}"
 SEARCH_ENC="$(node -e "console.log(encodeURIComponent(process.argv[1]))" "$SEARCH_TERM" 2>/dev/null || echo "$SEARCH_TERM")"
-SEARCH_RES="$(curl -sk "${BASE_URL}/xrpc/app.bsky.feed.searchPosts?q=${SEARCH_ENC}" \
-  -H "Authorization: Bearer ${USER_A_JWT}" || echo "{}")"
+SEARCH_RES="$(curl -sk "${BASE_URL}/xrpc/app.bsky.feed.searchPosts?q=${SEARCH_ENC}" || echo "{}")"
 echo "$SEARCH_RES" | grep -q "${RAND_SUFFIX}" \
   && check 12 "Search post by Hebrew text returns post" 0 \
   || check 12 "Search post by Hebrew text returns post" 1
@@ -131,10 +129,10 @@ FOLLOW_RES="$(curl -sk -X POST "${PDS_URL}/xrpc/com.atproto.repo.createRecord" \
 FOLLOW_URI="$(echo "$FOLLOW_RES" | jq -r '.uri // empty')"
 [ -n "$FOLLOW_URI" ] && check 13 "User B follows User A" 0 || check 13 "User B follow User A failed" 1
 
-# 14. Timeline: User B's timeline includes User A's post
+# 14. Timeline: User B's timeline includes User A's post via PDS proxy
 TIMELINE_FOUND=1
 for i in {1..10}; do
-  TL_RES="$(curl -sk "${BASE_URL}/xrpc/app.bsky.feed.getTimeline?limit=10" \
+  TL_RES="$(curl -sk "${PDS_URL}/xrpc/app.bsky.feed.getTimeline?limit=10" \
     -H "Authorization: Bearer ${USER_B_JWT}" || echo "{}")"
   if echo "$TL_RES" | grep -q "${HEBREW_TEXT}"; then
     TIMELINE_FOUND=0
@@ -161,16 +159,15 @@ REPLY_RES="$(curl -sk -X POST "${PDS_URL}/xrpc/com.atproto.repo.createRecord" \
 REPLY_URI="$(echo "$REPLY_RES" | jq -r '.uri // empty')"
 sleep 1
 THREAD_ENC="$(node -e "console.log(encodeURIComponent(process.argv[1]))" "$POST_URI" 2>/dev/null || echo "$POST_URI")"
-THREAD_RES="$(curl -sk "${BASE_URL}/xrpc/app.bsky.feed.getPostThread?uri=${THREAD_ENC}" \
-  -H "Authorization: Bearer ${USER_A_JWT}" || echo "{}")"
+THREAD_RES="$(curl -sk "${BASE_URL}/xrpc/app.bsky.feed.getPostThread?uri=${THREAD_ENC}" || echo "{}")"
 echo "$THREAD_RES" | grep -q "${REPLY_TEXT}" \
   && check 16 "Thread view returns root + reply" 0 \
   || check 16 "Thread view returns root + reply" 1
 
-# 17. Notifications: User A's notifications include User B's follow, like, and reply
+# 17. Notifications: User A's notifications include User B's follow, like, and reply via PDS
 NOTIF_FOUND=1
 for i in {1..10}; do
-  NOTIF_RES="$(curl -sk "${BASE_URL}/xrpc/app.bsky.notification.listNotifications?limit=20" \
+  NOTIF_RES="$(curl -sk "${PDS_URL}/xrpc/app.bsky.notification.listNotifications?limit=20" \
     -H "Authorization: Bearer ${USER_A_JWT}" || echo "{}")"
   if echo "$NOTIF_RES" | grep -q "${USER_B_DID}"; then
     NOTIF_FOUND=0
@@ -180,31 +177,29 @@ for i in {1..10}; do
 done
 check 17 "User A notifications include User B actions" "$NOTIF_FOUND"
 
-# 18. Notification count: User A's unread count > 0; mark read; verify count resets
-UNREAD_RES="$(curl -sk "${BASE_URL}/xrpc/app.bsky.notification.getUnreadCount" \
+# 18. Notification count: User A's unread count > 0; mark read; verify count resets via PDS
+UNREAD_RES="$(curl -sk "${PDS_URL}/xrpc/app.bsky.notification.getUnreadCount" \
   -H "Authorization: Bearer ${USER_A_JWT}" || echo "{}")"
 UNREAD_COUNT="$(echo "$UNREAD_RES" | jq -r '.count // 0')"
-curl -sk -X POST "${BASE_URL}/xrpc/app.bsky.notification.updateSeen" \
+curl -sk -X POST "${PDS_URL}/xrpc/app.bsky.notification.updateSeen" \
   -H "Authorization: Bearer ${USER_A_JWT}" \
   -H "Content-Type: application/json" \
   -d "{\"seenAt\":\"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}" >/dev/null 2>&1 || true
-UNREAD_AFTER="$(curl -sk "${BASE_URL}/xrpc/app.bsky.notification.getUnreadCount" \
+UNREAD_AFTER="$(curl -sk "${PDS_URL}/xrpc/app.bsky.notification.getUnreadCount" \
   -H "Authorization: Bearer ${USER_A_JWT}" | jq -r '.count // 0')"
 [ "$UNREAD_COUNT" -ge 0 ] && [ "$UNREAD_AFTER" -eq 0 ] \
   && check 18 "Notification count resets after updateSeen" 0 \
   || check 18 "Notification count resets after updateSeen" 1
 
 # 19. Explore: AppView unspecced.getSuggestedUsersForExplore returns 200 (not 500)
-EXPLORE_CODE="$(curl -sk -o /dev/null -w "%{http_code}" "${BASE_URL}/xrpc/app.bsky.unspecced.getSuggestedUsersForExplore?limit=10" \
-  -H "Authorization: Bearer ${USER_A_JWT}" || echo "000")"
+EXPLORE_CODE="$(curl -sk -o /dev/null -w "%{http_code}" "${BASE_URL}/xrpc/app.bsky.unspecced.getSuggestedUsersForExplore?limit=10" || echo "000")"
 [ "$EXPLORE_CODE" = "200" ] && check 19 "Explore getSuggestedUsersForExplore returns 200" 0 || check 19 "Explore returned ${EXPLORE_CODE}" 1
 
 # 20. Discover: AppView getFeed for default Discover feed returns 200 with posts (not 500)
 APPVIEW_DID="$(echo "$APPVIEW_DID_DOC" | jq -r '.id // empty')"
 DISCOVER_FEED_URI="at://${APPVIEW_DID}/app.bsky.feed.generator/whats-hot"
 DISCOVER_ENC="$(node -e "console.log(encodeURIComponent(process.argv[1]))" "$DISCOVER_FEED_URI" 2>/dev/null || echo "$DISCOVER_FEED_URI")"
-DISCOVER_CODE="$(curl -sk -o /dev/null -w "%{http_code}" "${BASE_URL}/xrpc/app.bsky.feed.getFeed?feed=${DISCOVER_ENC}&limit=10" \
-  -H "Authorization: Bearer ${USER_A_JWT}" || echo "000")"
+DISCOVER_CODE="$(curl -sk -o /dev/null -w "%{http_code}" "${BASE_URL}/xrpc/app.bsky.feed.getFeed?feed=${DISCOVER_ENC}&limit=10" || echo "000")"
 [ "$DISCOVER_CODE" = "200" ] && check 20 "Discover feed (whats-hot) returns 200" 0 || check 20 "Discover feed returned ${DISCOVER_CODE}" 1
 
 # 21. Chat: User A sends a chat message to User B via chat proxy; User B reads it
