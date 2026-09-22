@@ -117,6 +117,24 @@ else
   systemctl restart pds
 fi
 
+# Torah Social: disable invite code requirement.
+# The upstream installer sets PDS_INVITE_REQUIRED=true by default.
+# Torah Social is an invitation-free community — members sign up directly.
+# The invite code mechanism is still available for admin use (pdsadmin create-invite-code)
+# but should NOT be required for account creation.
+log "Disabling invite code requirement for Torah Social open registration"
+if grep -q '^PDS_INVITE_REQUIRED=' "${STATE_DIR}/pds.env"; then
+  sed -i 's/^PDS_INVITE_REQUIRED=.*/PDS_INVITE_REQUIRED=false/' "${STATE_DIR}/pds.env"
+else
+  echo 'PDS_INVITE_REQUIRED=false' >> "${STATE_DIR}/pds.env"
+fi
+# Verify the change took effect
+CONFIGURED_INVITE_REQUIRED="$(sed -n 's/^PDS_INVITE_REQUIRED=//p' "${STATE_DIR}/pds.env" | head -n 1)"
+if [[ "${CONFIGURED_INVITE_REQUIRED}" != "false" ]]; then
+  fail "Failed to set PDS_INVITE_REQUIRED=false in pds.env (got: '${CONFIGURED_INVITE_REQUIRED}')"
+fi
+log "PDS_INVITE_REQUIRED=false verified in pds.env"
+
 # The current upstream installer writes the Caddy on-demand permission keyword
 # as `task`; current Caddy uses `ask`. We write the complete intended config
 # here and also add the Torah Social web hostname.
@@ -236,7 +254,7 @@ Torah Social experimental server is ready
 Web:          https://${APP_HOSTNAME}
 PDS:          https://${PDS_HOSTNAME}
 Handle form:  username.${PDS_HOSTNAME}
-Invite code:  ${INVITE_CODE}
+Registration: OPEN — no invite code required (PDS_INVITE_REQUIRED=false)
 
 Persistent PDS data: ${STATE_DIR}
 Web source checkout: ${SOCIAL_APP_DIR}
@@ -245,6 +263,6 @@ Useful commands:
   docker logs -f torah-social-web
   docker logs -f pds
   docker logs -f caddy
-  pdsadmin create-invite-code
+  pdsadmin create-invite-code   # for admin bulk-invite flows (optional)
 ========================================================================
 EOF
