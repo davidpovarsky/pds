@@ -25,7 +25,8 @@ STATE_DIR="/pds"
 TORAH_DIR="/opt/torah-social"
 SOCIAL_APP_DIR="${TORAH_DIR}/social-app"
 SOCIAL_APP_REPO="https://github.com/davidpovarsky/social-app.git"
-SOCIAL_APP_BRANCH="codex/torah-social-foundation"
+# SOCIAL_APP_BRANCH: default to the runtime-repair branch; override with env var
+SOCIAL_APP_BRANCH="${SOCIAL_APP_BRANCH:-codex/torah-social-runtime-repair}"
 STATE_ENV="${STATE_DIR}/torah-social.env"
 INVITE_FILE="${STATE_DIR}/torah-social-invite-code.txt"
 
@@ -166,7 +167,7 @@ docker run --detach \
   --name torah-social-web \
   --restart unless-stopped \
   --publish 127.0.0.1:8100:8100 \
-  --env ATP_APPVIEW_HOST=https://public.api.bsky.app \
+  --env "ATP_APPVIEW_HOST=https://${PDS_HOSTNAME}" \
   --env HTTP_ADDRESS=:8100 \
   --env ROBOTS_DISALLOW_ALL=true \
   torah-social-web:latest >/dev/null
@@ -201,26 +202,29 @@ for _ in $(seq 1 45); do
 done
 [[ "${HTTPS_READY}" -eq 1 ]] || fail "HTTPS is not reachable yet. Make sure cloud firewall ports 80 and 443 are open."
 
-log "Creating a one-use signup invite code"
-if command -v pdsadmin >/dev/null 2>&1; then
-  pdsadmin create-invite-code | tee "${INVITE_FILE}" >/dev/null
+log "Creating a one-use signup invite code (first run only)"
+if [[ ! -f "${INVITE_FILE}" ]]; then
+  if command -v pdsadmin >/dev/null 2>&1; then
+    pdsadmin create-invite-code | tee "${INVITE_FILE}" >/dev/null
+  else
+    PDS_ADMIN_PASSWORD="$(sed -n 's/^PDS_ADMIN_PASSWORD=//p' "${STATE_DIR}/pds.env")"
+    curl --fail --silent --show-error \
+      --request POST \
+      --user "admin:${PDS_ADMIN_PASSWORD}" \
+      --header 'Content-Type: application/json' \
+      --data '{"useCount":1}' \
+      "https://${PDS_HOSTNAME}/xrpc/com.atproto.server.createInviteCode" \
+      | jq --raw-output '.code' | tee "${INVITE_FILE}" >/dev/null
+  fi
+  chmod 600 "${INVITE_FILE}"
 else
-  PDS_ADMIN_PASSWORD="$(sed -n 's/^PDS_ADMIN_PASSWORD=//p' "${STATE_DIR}/pds.env")"
-  curl --fail --silent --show-error \
-    --request POST \
-    --user "admin:${PDS_ADMIN_PASSWORD}" \
-    --header 'Content-Type: application/json' \
-    --data '{"useCount":1}' \
-    "https://${PDS_HOSTNAME}/xrpc/com.atproto.server.createInviteCode" \
-    | jq --raw-output '.code' | tee "${INVITE_FILE}" >/dev/null
+  log "Invite code already exists at ${INVITE_FILE}; skipping creation"
 fi
-chmod 600 "${INVITE_FILE}"
 
-# Ask the public relay to crawl this PDS. This is best-effort during the
-# experimental phase; a failure here should not take down the local network.
-if command -v pdsadmin >/dev/null 2>&1; then
-  pdsadmin request-crawl >/dev/null 2>&1 || true
-fi
+# NOTE: pdsadmin request-crawl is intentionally NOT called here.
+# Torah Social operates as an isolated network and should not request crawling
+# by the public Bluesky relay (relay.bsky.network). Doing so would expose
+# local Torah Social content to the public Bluesky network.
 
 INVITE_CODE="$(cat "${INVITE_FILE}")"
 
