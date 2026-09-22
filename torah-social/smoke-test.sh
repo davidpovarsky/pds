@@ -26,14 +26,14 @@ check() {
   fi
 }
 
-RAND_SUFFIX="$(date +%s)-$((RANDOM % 10000))"
-USER_A_HANDLE="smoke-a-${RAND_SUFFIX}.pds-130-110-238-163.nip.io"
-USER_A_EMAIL="smoke-a-${RAND_SUFFIX}@torah-social.local"
-USER_A_PASS="PassA_${RAND_SUFFIX}!"
+RAND_SUFFIX="$(date +%s | tail -c 6)-$((RANDOM % 900 + 100))"
+USER_A_HANDLE="u-a-${RAND_SUFFIX}.pds-130-110-238-163.nip.io"
+USER_A_EMAIL="u-a-${RAND_SUFFIX}@torah-social.local"
+USER_A_PASS="PassA-${RAND_SUFFIX}!"
 
-USER_B_HANDLE="smoke-b-${RAND_SUFFIX}.pds-130-110-238-163.nip.io"
-USER_B_EMAIL="smoke-b-${RAND_SUFFIX}@torah-social.local"
-USER_B_PASS="PassB_${RAND_SUFFIX}!"
+USER_B_HANDLE="u-b-${RAND_SUFFIX}.pds-130-110-238-163.nip.io"
+USER_B_EMAIL="u-b-${RAND_SUFFIX}@torah-social.local"
+USER_B_PASS="PassB-${RAND_SUFFIX}!"
 
 # 1. Health check: PDS /xrpc/_health returns 200
 HTTP_CODE="$(curl -sk -o /dev/null -w "%{http_code}" "${PDS_URL}/xrpc/_health" || echo "000")"
