@@ -6,7 +6,6 @@ on:
       - "build-and-push-ghcr"
       - "Torah Social Deploy Check"
     types:
-      - requested
       - in_progress
       - completed
 
