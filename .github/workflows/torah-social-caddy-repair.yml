@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - codex/torah-social-caddy-repair-20261122
+      - codex/torah-social-runtime-repair
+    paths:
+      - 'torah-social/**'
+      - '.github/workflows/torah-social-caddy-repair.yml'
+  pull_request:
+    branches:
+      - codex/torah-social-runtime-repair
     paths:
       - 'torah-social/**'
       - '.github/workflows/torah-social-caddy-repair.yml'
