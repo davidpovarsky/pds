@@ -25,7 +25,7 @@ The temporary hostnames are only DNS names. The application and PDS data remain 
 Clone this branch on the VM and run the installer as root:
 
 ```bash
-git clone --branch codex/torah-social-caddy-repair-20261122 --single-branch https://github.com/davidpovarsky/pds.git
+git clone --branch codex/torah-social-runtime-repair --single-branch https://github.com/davidpovarsky/pds.git
 cd pds
 sudo ADMIN_EMAIL=you@example.com bash torah-social/install.sh
 ```

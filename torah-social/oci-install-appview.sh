@@ -61,8 +61,8 @@ if ! "${SSH[@]}" 'sudo test -f /var/run/torah-appview-install.running'; then
   echo "The web bundle will be rebuilt; this can take several minutes."
   # Fetch the installer and its Caddy helper from the same PDS revision.
   # PDS_BRANCH is separate from the atproto source branch.
-  [[ "${PDS_BRANCH:-codex/torah-social-caddy-repair-20261122}" =~ ^[A-Za-z0-9._/-]+$ ]] || fail "Invalid PDS_BRANCH."
-  "${SSH[@]}" env PDS_BRANCH="${PDS_BRANCH:-codex/torah-social-caddy-repair-20261122}" bash -s <<'REMOTE'
+  [[ "${PDS_BRANCH:-codex/torah-social-runtime-repair}" =~ ^[A-Za-z0-9._/-]+$ ]] || fail "Invalid PDS_BRANCH."
+  "${SSH[@]}" env PDS_BRANCH="${PDS_BRANCH:-codex/torah-social-runtime-repair}" bash -s <<'REMOTE'
 set -euo pipefail
 install_dir="$(mktemp -d /tmp/torah-appview-install.XXXXXX)"
 for filename in install-appview.sh configure-caddy.py; do
