@@ -5,9 +5,9 @@ This directory turns a normal Ubuntu/Debian VM into the first Torah Social test 
 It deploys:
 
 - the official AT Protocol PDS with persistent data in `/pds`;
-- the Torah Social web client from `davidpovarsky/social-app`, branch `codex/torah-social-foundation`;
+- the Torah Social web client from `davidpovarsky/social-app`, with the source branch controlled by `SOCIAL_APP_BRANCH`;
 - Caddy HTTPS for both services;
-- invite-only account creation;
+- open account creation (`PDS_INVITE_REQUIRED=false`);
 - a free temporary `nip.io` hostname derived from the VM public IPv4 address.
 
 The temporary hostnames are only DNS names. The application and PDS data remain portable to a permanent domain later.
@@ -25,7 +25,7 @@ The temporary hostnames are only DNS names. The application and PDS data remain 
 Clone this branch on the VM and run the installer as root:
 
 ```bash
-git clone --branch codex/torah-social-foundation --single-branch https://github.com/davidpovarsky/pds.git
+git clone --branch codex/torah-social-caddy-repair-20261122 --single-branch https://github.com/davidpovarsky/pds.git
 cd pds
 sudo ADMIN_EMAIL=you@example.com bash torah-social/install.sh
 ```
@@ -35,7 +35,7 @@ The installer prints:
 - the Torah Social web URL;
 - the PDS URL;
 - the handle suffix;
-- a one-use signup invite code.
+- open-registration status.
 
 A fresh invite can be created later with:
 
@@ -47,21 +47,35 @@ sudo pdsadmin create-invite-code
 
 PDS accounts, repositories, blobs, keys and configuration live under `/pds`. Rebuilding or replacing the Torah Social web container does not erase them.
 
-## Architecture during the experiment
+## Shared HTTPS and the isolated AppView
 
-```text
-Browser / app
-    |
-    +--> Torah Social web (localhost:8100)
-    |
-    +--> Torah Social PDS (localhost:3000)
-              |
-              +--> public Bluesky AppView for social aggregation, temporarily
+The AppView installer adds the private Torah Social AppView on loopback port 2584. The web client uses loopback port 8100, and the PDS uses port 3000. The public hostnames route to these separate services through Caddy; Torah Social does not use the public Bluesky AppView.
 
-Caddy owns public ports 80/443 and routes the two hostnames.
+Caddy can share a VM with Tailscale Serve. Its HTTPS listener must bind to the VM's primary interface address, rather than all interfaces. On a cloud VM behind NAT this is the assigned private IPv4 address, not the externally visible public IPv4 address. A wildcard listener can collide with Tailscale's listener and prevent every public hostname from loading.
+
+Both Torah installers use `configure-caddy.py` to preserve all existing site blocks, including the PDS DID document handler and unrelated services. Missing Torah site blocks are appended. Existing site blocks are never replaced. The helper keeps an existing valid primary-interface binding, or detects the primary IPv4 from the default route. Set `CADDY_BIND_ADDRESS` explicitly when the host has multiple suitable addresses. Loopback, wildcard, unassigned and Tailscale addresses are rejected.
+
+For an existing shared server, inspect the targeted Caddy repair without rebuilding or restarting the PDS, AppView or web client:
+
+```bash
+sudo python3 torah-social/configure-caddy.py --dry-run
+# Optional explicit interface address:
+sudo CADDY_BIND_ADDRESS=10.42.1.135 python3 torah-social/configure-caddy.py --dry-run
 ```
 
-This is intentionally an intermediate **backend architecture**, not a throwaway web preview: accounts are created on our PDS. The remaining dependency on Bluesky's public AppView is replaced later when the Torah Social AppView/social backend is deployed from the AT Protocol stack.
+Apply the verified change with:
+
+```bash
+sudo python3 torah-social/configure-caddy.py --apply
+```
+
+The dry-run validates a temporary candidate with the exact deployed Caddy image and read-only mounts. Applying first creates `Caddyfile.before-torah-bind-<UTC timestamp>` beside the live file, atomically replaces the configuration and reloads only Caddy. A failed reload restores and reloads the original. An unchanged configuration needs no reload. The helper does not alter Tailscale settings, certificates, user data, containers other than Caddy, or existing site blocks. Explicit site-level bind overrides outside the chosen primary address require operator review and fail validation without replacing the active file.
+
+After applying, verify the public web URL plus `/xrpc/_health` on the PDS and AppView hostnames. Configuration validation cannot prove cloud firewall rules, DNS or external reachability. The saved backup can also be copied back and loaded with `docker exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile`.
+
+The standalone Oracle helper downloads `install-appview.sh` and `configure-caddy.py` from the same `PDS_BRANCH`. This source ref is separate from `ATPROTO_BRANCH`. A complete Git checkout is required for the base installer.
+
+References: [Caddy default_bind](https://caddyserver.com/docs/caddyfile/options#default-bind), [configuration validation and reload](https://caddyserver.com/docs/command-line).
 
 ## Updating the web client
 

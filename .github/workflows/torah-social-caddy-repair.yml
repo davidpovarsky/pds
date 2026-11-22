@@ -1,0 +1,54 @@
+name: Torah Social Caddy Preservation
+
+on:
+  push:
+    branches:
+      - codex/torah-social-caddy-repair-20261122
+    paths:
+      - 'torah-social/**'
+      - '.github/workflows/torah-social-caddy-repair.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Check installer syntax
+        run: |
+          set -euo pipefail
+          for script in torah-social/install.sh torah-social/install-appview.sh torah-social/oci-install-appview.sh; do
+            bash -n "$script"
+          done
+      - name: Verify route preservation, address selection and rollback
+        run: python3 -m unittest discover -s torah-social -p 'test_caddy_config.py' -v
+      - name: Validate a preserved shared-host fixture with Caddy
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/torah-caddy"
+          python3 - "$RUNNER_TEMP/torah-caddy/Caddyfile" <<'PY'
+          import importlib.util, pathlib, sys
+          spec = importlib.util.spec_from_file_location('fixtures', 'torah-social/test_caddy_config.py')
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          rendered, _ = module.caddy.render(module.EXISTING, '10.42.1.135', appview='appview.example.com')
+          pathlib.Path(sys.argv[1]).write_text(rendered)
+          PY
+          docker run --rm --network none \
+            --mount "type=bind,src=$RUNNER_TEMP/torah-caddy,dst=/etc/caddy,readonly" \
+            caddy:2.11.9 caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile --validate \
+            > "$RUNNER_TEMP/torah-caddy/adapted.json"
+          python3 - "$RUNNER_TEMP/torah-caddy/adapted.json" <<'PY'
+          import json, sys
+          config = json.load(open(sys.argv[1]))
+          servers = config['apps']['http']['servers']
+          listeners = [item for server in servers.values() for item in server['listen']]
+          assert listeners and all(item.startswith('10.42.1.135:') for item in listeners), listeners
+          print('Validated preserved shared routes and explicit HTTPS listeners:', listeners)
+          PY
