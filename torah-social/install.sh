@@ -237,8 +237,6 @@ fi
 # by the public Bluesky relay (relay.bsky.network). Doing so would expose
 # local Torah Social content to the public Bluesky network.
 
-INVITE_CODE="$(cat "${INVITE_FILE}")"
-
 cat <<EOF
 
 ========================================================================
