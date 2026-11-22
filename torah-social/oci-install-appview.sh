@@ -59,7 +59,27 @@ fi
 if ! "${SSH[@]}" 'sudo test -f /var/run/torah-appview-install.running'; then
   echo "Starting Torah Social isolation upgrade in the VM background."
   echo "The web bundle will be rebuilt; this can take several minutes."
-  "${SSH[@]}" 'curl -fsSL "https://raw.githubusercontent.com/davidpovarsky/pds/${ATPROTO_BRANCH:-codex/torah-social-runtime-repair}/torah-social/install-appview.sh" -o /tmp/install-appview.sh && sudo rm -f /var/run/torah-appview-install.exit && sudo touch /var/run/torah-appview-install.running && sudo sh -c '\''nohup bash -c "bash /tmp/install-appview.sh; rc=\$?; echo \$rc > /var/run/torah-appview-install.exit; rm -f /var/run/torah-appview-install.running" > /var/log/torah-appview-install.log 2>&1 < /dev/null &'\'''
+  # Fetch the installer and its Caddy helper from the same PDS revision.
+  # PDS_BRANCH is separate from the atproto source branch.
+  [[ "${PDS_BRANCH:-codex/torah-social-runtime-repair}" =~ ^[A-Za-z0-9._/-]+$ ]] || fail "Invalid PDS_BRANCH."
+  "${SSH[@]}" env PDS_BRANCH="${PDS_BRANCH:-codex/torah-social-runtime-repair}" bash -s <<'REMOTE'
+set -euo pipefail
+install_dir="$(mktemp -d /tmp/torah-appview-install.XXXXXX)"
+for filename in install-appview.sh configure-caddy.py; do
+  curl -fsSL "https://raw.githubusercontent.com/davidpovarsky/pds/${PDS_BRANCH}/torah-social/${filename}" -o "${install_dir}/${filename}"
+done
+sudo rm -f /var/run/torah-appview-install.exit
+sudo touch /var/run/torah-appview-install.running
+sudo bash -s -- "${install_dir}/install-appview.sh" <<'LAUNCH'
+nohup bash -c '
+  bash "$1"
+  rc=$?
+  printf "%s\n" "$rc" > /var/run/torah-appview-install.exit
+  rm -f /var/run/torah-appview-install.running
+  exit "$rc"
+' bash "$1" > /var/log/torah-appview-install.log 2>&1 < /dev/null &
+LAUNCH
+REMOTE
 else
   echo "An isolation upgrade is already running; reconnecting to its status."
 fi

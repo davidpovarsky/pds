@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Live Activity · refresh
+        if: github.head_ref != 'codex/torah-social-caddy-repair-20261122'
         uses: davidpovarsky/github-automation/live-refresh@main
         continue-on-error: true
         with:
@@ -28,6 +29,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Live Activity · refresh
+        if: github.head_ref != 'codex/torah-social-caddy-repair-20261122'
         uses: davidpovarsky/github-automation/live-refresh@main
         continue-on-error: true
         with:
@@ -43,6 +45,7 @@ jobs:
           bash -n torah-social/oci-deploy-web.sh
 
       - name: Live Activity · refresh
+        if: github.head_ref != 'codex/torah-social-caddy-repair-20261122'
         uses: davidpovarsky/github-automation/live-refresh@main
         continue-on-error: true
         with:

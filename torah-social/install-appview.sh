@@ -6,6 +6,8 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+CADDY_HELPER="${SCRIPT_DIR}/configure-caddy.py"
 STATE_DIR="/pds"
 TORAH_ENV="${STATE_DIR}/torah-social.env"
 APPVIEW_ENV="${STATE_DIR}/torah-appview.env"
@@ -28,9 +30,12 @@ fail() {
   exit 1
 }
 
+[[ -f "${CADDY_HELPER}" ]] || fail "Missing ${CADDY_HELPER}; download the helper from the same PDS ref or use a complete checkout."
+INPUT_CADDY_BIND_ADDRESS="${CADDY_BIND_ADDRESS:-}"
 [[ -f "${TORAH_ENV}" ]] || fail "Missing ${TORAH_ENV}; run the Torah Social base installer first."
 # shellcheck disable=SC1090
 source "${TORAH_ENV}"
+CADDY_BIND_ADDRESS="${INPUT_CADDY_BIND_ADDRESS:-${CADDY_BIND_ADDRESS:-}}"
 
 [[ -n "${PUBLIC_IP:-}" ]] || fail "PUBLIC_IP missing from ${TORAH_ENV}"
 [[ -n "${APP_HOSTNAME:-}" ]] || fail "APP_HOSTNAME missing from ${TORAH_ENV}"
@@ -136,31 +141,10 @@ if [[ "${APPVIEW_LOCAL_READY}" -ne 1 ]]; then
 fi
 
 log "Publishing the Torah AppView through Caddy"
-cat >"${STATE_DIR}/caddy/etc/caddy/Caddyfile" <<EOF
-{
-  email ${ADMIN_EMAIL}
-  on_demand_tls {
-    ask http://localhost:3000/tls-check
-  }
-}
-
-${APP_HOSTNAME} {
-  reverse_proxy http://127.0.0.1:8100
-}
-
-${APPVIEW_HOSTNAME} {
-  reverse_proxy http://127.0.0.1:2584
-}
-
-*.${PDS_HOSTNAME}, ${PDS_HOSTNAME} {
-  tls {
-    on_demand
-  }
-  reverse_proxy http://localhost:3000
-}
-EOF
-
-docker restart caddy >/dev/null
+python3 "${CADDY_HELPER}" --apply --state-dir "${STATE_DIR}" \
+  --bind-address "${CADDY_BIND_ADDRESS}" --email "${ADMIN_EMAIL}" \
+  --web-hostname "${APP_HOSTNAME}" --appview-hostname "${APPVIEW_HOSTNAME}" \
+  --pds-hostname "${PDS_HOSTNAME}"
 
 APPVIEW_HTTPS_READY=0
 for _ in $(seq 1 45); do

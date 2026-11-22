@@ -13,6 +13,7 @@ set -Eeuo pipefail
 #   PUBLIC_IP=203.0.113.10
 #   APP_HOSTNAME=app.example.com
 #   PDS_HOSTNAME=pds.example.com
+#   CADDY_BIND_ADDRESS=10.0.0.10  # assigned primary IPv4; autodetected if omitted
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "ERROR: run this installer as root (sudo)." >&2
@@ -21,6 +22,7 @@ fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+CADDY_HELPER="${SCRIPT_DIR}/configure-caddy.py"
 STATE_DIR="/pds"
 TORAH_DIR="/opt/torah-social"
 SOCIAL_APP_DIR="${TORAH_DIR}/social-app"
@@ -39,6 +41,8 @@ fail() {
   exit 1
 }
 
+[[ -f "${CADDY_HELPER}" ]] || fail "Missing ${CADDY_HELPER}; use a complete checkout of this PDS branch."
+
 is_ipv4() {
   local ip="$1"
   [[ "${ip}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
@@ -55,6 +59,7 @@ INPUT_ADMIN_EMAIL="${ADMIN_EMAIL:-}"
 INPUT_PUBLIC_IP="${PUBLIC_IP:-}"
 INPUT_APP_HOSTNAME="${APP_HOSTNAME:-}"
 INPUT_PDS_HOSTNAME="${PDS_HOSTNAME:-}"
+INPUT_CADDY_BIND_ADDRESS="${CADDY_BIND_ADDRESS:-}"
 
 if [[ -f "${STATE_ENV}" ]]; then
   # shellcheck disable=SC1090
@@ -65,12 +70,13 @@ ADMIN_EMAIL="${INPUT_ADMIN_EMAIL:-${ADMIN_EMAIL:-}}"
 PUBLIC_IP="${INPUT_PUBLIC_IP:-${PUBLIC_IP:-}}"
 APP_HOSTNAME="${INPUT_APP_HOSTNAME:-${APP_HOSTNAME:-}}"
 PDS_HOSTNAME="${INPUT_PDS_HOSTNAME:-${PDS_HOSTNAME:-}}"
+CADDY_BIND_ADDRESS="${INPUT_CADDY_BIND_ADDRESS:-${CADDY_BIND_ADDRESS:-}}"
 
 # A pristine cloud image may not contain curl/git/lsb_release yet. The official
 # PDS installer needs lsb_release before it installs its own package list.
 log "Preparing base system tools"
 apt-get update
-apt-get install --yes ca-certificates curl git lsb-release
+apt-get install --yes ca-certificates curl git lsb-release python3
 
 if [[ -z "${PUBLIC_IP}" ]]; then
   log "Detecting public IPv4 address"
@@ -113,6 +119,9 @@ if [[ ! -f "${STATE_DIR}/pds.env" ]]; then
   printf 'n\n' | bash "${REPO_ROOT}/installer.sh" "${STATE_DIR}" "${PDS_HOSTNAME}" "${ADMIN_EMAIL}"
 else
   log "Existing PDS data found; preserving ${STATE_DIR}"
+  # Repair a legacy wildcard bind before the compose stack is restarted.
+  python3 "${CADDY_HELPER}" --apply --state-dir "${STATE_DIR}" \
+    --bind-address "${CADDY_BIND_ADDRESS}"
   systemctl enable pds >/dev/null 2>&1 || true
   systemctl restart pds
 fi
@@ -135,30 +144,14 @@ if [[ "${CONFIGURED_INVITE_REQUIRED}" != "false" ]]; then
 fi
 log "PDS_INVITE_REQUIRED=false verified in pds.env"
 
-# The current upstream installer writes the Caddy on-demand permission keyword
-# as `task`; current Caddy uses `ask`. We write the complete intended config
-# here and also add the Torah Social web hostname.
+# Preserve the existing PDS DID handler and every unrelated shared-host route.
+# The helper validates a candidate with the deployed Caddy image before replacing
+# the file, then backs up/reloads only Caddy and rolls back on reload failure.
 log "Configuring shared HTTPS for Torah Social and the PDS"
 mkdir -p "${STATE_DIR}/caddy/data" "${STATE_DIR}/caddy/etc/caddy"
-cat >"${STATE_DIR}/caddy/etc/caddy/Caddyfile" <<EOF
-{
-  email ${ADMIN_EMAIL}
-  on_demand_tls {
-    ask http://localhost:3000/tls-check
-  }
-}
-
-${APP_HOSTNAME} {
-  reverse_proxy http://127.0.0.1:8100
-}
-
-*.${PDS_HOSTNAME}, ${PDS_HOSTNAME} {
-  tls {
-    on_demand
-  }
-  reverse_proxy http://localhost:3000
-}
-EOF
+python3 "${CADDY_HELPER}" --apply --state-dir "${STATE_DIR}" \
+  --bind-address "${CADDY_BIND_ADDRESS}" --email "${ADMIN_EMAIL}" \
+  --web-hostname "${APP_HOSTNAME}" --pds-hostname "${PDS_HOSTNAME}"
 
 log "Fetching Torah Social client"
 if [[ ! -d "${SOCIAL_APP_DIR}/.git" ]]; then
@@ -243,8 +236,6 @@ fi
 # Torah Social operates as an isolated network and should not request crawling
 # by the public Bluesky relay (relay.bsky.network). Doing so would expose
 # local Torah Social content to the public Bluesky network.
-
-INVITE_CODE="$(cat "${INVITE_FILE}")"
 
 cat <<EOF
 
